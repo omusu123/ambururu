@@ -9,7 +9,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Daraja API credentials
+# Daraja API credentials (set in Railway variables)
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("CONSUMER_SECRET")
 SHORTCODE = os.getenv("SHORTCODE")
@@ -24,75 +24,79 @@ def get_access_token():
     response = requests.get(url, headers=headers)
     return response.json().get("access_token")
 
-# Homepage: Booking form
+# Homepage - Booking Form
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Initiate M-Pesa payment
+# Initiate M-Pesa Payment
 @app.route('/pay', methods=['POST'])
 def pay():
-    # Get booking details from form
-    name = request.form.get('name')
-    phone = request.form.get('phone')
-    amount = request.form.get('amount')
+    try:
+        phone = request.form.get('phone')
+        amount = request.form.get('amount')
+        
+        # Format phone (e.g., 0722... → 254722...)
+        if phone.startswith("0"):
+            phone = f"254{phone[1:]}"
 
-    # Format phone number (e.g., 0712... → 254712...)
-    if phone.startswith("0"):
-        phone = f"254{phone[1:]}"
+        # Prepare STK push
+        access_token = get_access_token()
+        url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
 
-    # Prepare STK push request
-    access_token = get_access_token()
-    url = "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        password = base64.b64encode(f"{SHORTCODE}{PASSKEY}{timestamp}".encode()).decode()
 
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    password = base64.b64encode(f"{SHORTCODE}{PASSKEY}{timestamp}".encode()).decode()
+        payload = {
+            "BusinessShortCode": SHORTCODE,
+            "Password": password,
+            "Timestamp": timestamp,
+            "TransactionType": "CustomerPayBillOnline",
+            "Amount": amount,
+            "PartyA": phone,
+            "PartyB": SHORTCODE,
+            "PhoneNumber": phone,
+            "CallBackURL": "https://ambururu.up.railway.app/callback",  # Railway URL
+            "AccountReference": "AmbururuBooking",
+            "TransactionDesc": "Booking Payment"
+        }
 
-    payload = {
-        "BusinessShortCode": SHORTCODE,
-        "Password": password,
-        "Timestamp": timestamp,
-        "TransactionType": "CustomerPayBillOnline",
-        "Amount": amount,
-        "PartyA": phone,
-        "PartyB": SHORTCODE,
-        "PhoneNumber": phone,
-        "CallBackURL": "https://your-app-name.herokuapp.com/callback",  # Replace with your URL
-        "AccountReference": "AmbururuBooking",
-        "TransactionDesc": "Book Service"
-    }
+        response = requests.post(url, headers=headers, json=payload)
+        if response.json().get("ResponseCode") == "0":
+            return redirect(url_for('payment_pending'))
+        else:
+            return "Payment initiation failed. Please try again."
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-    response = requests.post(url, headers=headers, json=payload)
-    if response.json().get("ResponseCode") == "0":
-        return redirect(url_for('payment_pending'))
-    else:
-        return "Payment initiation failed. Please try again."
-
-# Payment pending page
+# Payment Pending Page
 @app.route('/payment-pending')
 def payment_pending():
     return render_template('payment.html')
 
-# M-Pesa callback handler
+# M-Pesa Callback Handler
 @app.route('/callback', methods=['POST'])
 def callback():
-    data = request.get_json()
-    result = data.get("Body", {}).get("stkCallback", {})
+    try:
+        data = request.get_json()
+        result = data.get("Body", {}).get("stkCallback", {})
+        
+        if result.get("ResultCode") == 0:
+            metadata = result.get("CallbackMetadata", {}).get("Item", [])
+            amount = next(item["Value"] for item in metadata if item["Name"] == "Amount")
+            mpesa_code = next(item["Value"] for item in metadata if item["Name"] == "MpesaReceiptNumber")
+            phone = next(item["Value"] for item in metadata if item["Name"] == "PhoneNumber")
+            
+            # Save to database (add your logic here)
+            print(f"✅ Payment successful! Amount: {amount}, Phone: {phone}, M-Pesa Code: {mpesa_code}")
+        else:
+            error = result.get("ResultDesc")
+            print(f"❌ Payment failed: {error}")
 
-    if result.get("ResultCode") == 0:
-        metadata = result.get("CallbackMetadata", {}).get("Item", [])
-        amount = next(item["Value"] for item in metadata if item["Name"] == "Amount")
-        mpesa_code = next(item["Value"] for item in metadata if item["Name"] == "MpesaReceiptNumber")
-        phone = next(item["Value"] for item in metadata if item["Name"] == "PhoneNumber")
-
-        # Save to database (e.g., mark booking as paid)
-        print(f"Payment successful! Amount: {amount}, Phone: {phone}, M-Pesa Code: {mpesa_code}")
-    else:
-        error = result.get("ResultDesc")
-        print(f"Payment failed: {error}")
-
-    return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
-
-if __name__ == '__main__':
-    app.run(debug=True)
+        return jsonify({"ResultCode": 0, "ResultDesc": "Accepted"})
+    except Exception as e:
+        print(f"⚠️ Callback error: {str(e)}

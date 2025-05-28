@@ -2,20 +2,22 @@
 <html>
 <head>
     <title>Ambururu - Book Now</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        input, select, button { width: 100%; padding: 10px; margin: 10px 0; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Book Your Service</h1>
-        <form action="/pay" method="POST">
-            <input type="text" name="name" placeholder="Your Name" required>
-            <input type="tel" name="phone" placeholder="07XX XXX XXX" required>
-            <select name="amount" required>
-                <option value="500">Standard Service - Ksh 500</option>
-                <option value="1000">Premium Service - Ksh 1000</option>
-            </select>
-            <button type="submit">Pay with M-Pesa</button>
-        </form>
-    </div>
+    <h1>Book Your Service</h1>
+    <form action="/pay" method="POST">
+        <input type="text" name="name" placeholder="Your Name" required>
+        <input type="tel" name="phone" placeholder="07XX XXX XXX" required>
+        <select name="amount" required>
+            <option value="100">Basic Service - Ksh 100</option>
+            <option value="500">Premium Service - Ksh 500</option>
+        </select>
+        <button type="submit">Pay with M-Pesa</button>
+    </form>
 </body>
 </html>
